@@ -1,0 +1,51 @@
+# ==========================================
+# PROCUREMENT APP - WINDOWS 11 SETUP
+# ==========================================
+
+# 1. Node.js kontrolü
+node --version
+npm --version
+git --version
+
+# Node.js yoksa:
+# https://nodejs.org üzerinden LTS sürümünü kur.
+# Sonra terminali yeniden aç.
+
+# ==========================================
+# 2. GitHub projesini indir
+# ==========================================
+
+git clone https://github.com/USERNAME/procurement-app.git
+
+cd procurement-app
+
+# ==========================================
+# 3. Doğru branch'e geç
+# ==========================================
+
+git checkout main
+git pull origin main
+
+# ==========================================
+# 4. Dependency'leri package-lock'a göre kur
+# ==========================================
+
+npm ci
+
+# ==========================================
+# 5. Environment dosyasını oluştur
+# ==========================================
+
+Copy-Item .env.example .env.local
+
+# ==========================================
+# 6. Prisma Client oluştur
+# ==========================================
+
+npx prisma generate
+
+# ==========================================
+# 7. Development server
+# ==========================================
+
+npm run dev
