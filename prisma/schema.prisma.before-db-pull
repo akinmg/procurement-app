@@ -1,0 +1,517 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// *
+///  * Sisteme giriş yapabilen kişiler.
+///  * Supabase Auth -> auth.users
+///  * |
+///  * | authUserId
+///  * v
+///  * User
+model User {
+  id                String              @id @default(uuid()) @db.Uuid
+  authUserId        String              @unique @db.Uuid
+  email             String              @unique
+  firstName         String
+  lastName          String
+  role              UserRole            @default(REQUESTER)
+  status            UserStatus          @default(ACTIVE)
+  departmentId      String?             @db.Uuid
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  approvals         approvals[]
+  auditLogs         AuditLog[]
+  createdOrders     PurchaseOrder[]     @relation("OrderCreator")
+  purchase_requests purchase_requests[]
+  createdRFQs       RFQ[]               @relation("RFQCreator")
+  department        Department?         @relation(fields: [departmentId], references: [id])
+
+  @@index([departmentId])
+  @@index([role, status])
+  @@map("users")
+}
+
+model Department {
+  id                String              @id @default(uuid()) @db.Uuid
+  name              String              @unique
+  code              String              @unique
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  purchase_requests purchase_requests[]
+  users             User[]
+
+  @@map("departments")
+}
+
+model RFQ {
+  id                String             @id @default(uuid()) @db.Uuid
+  rfqNumber         String             @unique
+  purchaseRequestId String?            @db.Uuid
+  title             String
+  description       String?
+  status            RFQStatus          @default(DRAFT)
+  createdById       String             @db.Uuid
+  deadline          DateTime?
+  currency          String             @default("TRY")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime
+  attachments       Attachment[]
+  purchase_orders   PurchaseOrder[]
+  quotations        Quotation[]
+  items             RFQItem[]
+  suppliers         RFQSupplier[]
+  createdBy         User               @relation("RFQCreator", fields: [createdById], references: [id])
+  purchase_requests purchase_requests? @relation(fields: [purchaseRequestId], references: [id])
+
+  @@index([createdById])
+  @@index([purchaseRequestId])
+  @@index([status])
+  @@map("rfqs")
+}
+
+/// *
+///  * RFQ'ya teklif vermesi beklenen firmalar.
+model RFQSupplier {
+  id         String    @id @default(uuid()) @db.Uuid
+  rfqId      String    @db.Uuid
+  supplierId String    @db.Uuid
+  invitedAt  DateTime  @default(now())
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
+  rfq        RFQ       @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplier   Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([rfqId, supplierId])
+  @@index([supplierId])
+  @@map("rfq_suppliers")
+}
+
+/// *
+///  * RFQ kalemleri.
+model RFQItem {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  rfqId                  String                  @db.Uuid
+  purchaseRequestItemId  String?                 @db.Uuid
+  itemNumber             Int
+  description            String
+  quantity               Decimal                 @db.Decimal(18, 4)
+  unit                   String
+  createdAt              DateTime                @default(now())
+  quotationItems         QuotationItem[]
+  purchase_request_items purchase_request_items? @relation(fields: [purchaseRequestItemId], references: [id])
+  rfq                    RFQ                     @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+
+  @@unique([rfqId, itemNumber])
+  @@index([purchaseRequestItemId])
+  @@map("rfq_items")
+}
+
+model Supplier {
+  id           String          @id @default(uuid()) @db.Uuid
+  supplierCode String          @unique
+  companyName  String
+  taxNumber    String?         @unique
+  email        String?
+  phone        String?
+  website      String?
+  address      String?
+  city         String?
+  country      String?
+  contactName  String?
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  attachments  Attachment[]
+  invoices     Invoice[]
+  orders       PurchaseOrder[]
+  quotations   Quotation[]
+  rfqSuppliers RFQSupplier[]
+
+  @@index([companyName])
+  @@index([isActive])
+  @@map("suppliers")
+}
+
+model Quotation {
+  id              String          @id @default(uuid()) @db.Uuid
+  quotationNumber String          @unique
+  rfqId           String          @db.Uuid
+  supplierId      String          @db.Uuid
+  status          QuotationStatus @default(DRAFT)
+  validUntil      DateTime?
+  currency        String          @default("TRY")
+  subtotal        Decimal?        @db.Decimal(18, 2)
+  taxTotal        Decimal?        @db.Decimal(18, 2)
+  grandTotal      Decimal?        @db.Decimal(18, 2)
+  notes           String?
+  submittedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime
+  attachments     Attachment[]
+  purchase_orders PurchaseOrder?
+  items           QuotationItem[]
+  rfq             RFQ             @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplier        Supplier        @relation(fields: [supplierId], references: [id])
+
+  @@unique([rfqId, supplierId])
+  @@index([supplierId])
+  @@index([status])
+  @@map("quotations")
+}
+
+model QuotationItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  quotationId String    @db.Uuid
+  rfqItemId   String    @db.Uuid
+  quantity    Decimal   @db.Decimal(18, 4)
+  unitPrice   Decimal   @db.Decimal(18, 2)
+  taxRate     Decimal?  @db.Decimal(5, 2)
+  taxAmount   Decimal?  @db.Decimal(18, 2)
+  total       Decimal?  @db.Decimal(18, 2)
+  notes       String?
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  rfqItem     RFQItem   @relation(fields: [rfqItemId], references: [id])
+
+  @@unique([quotationId, rfqItemId])
+  @@index([rfqItemId])
+  @@map("quotation_items")
+}
+
+model PurchaseOrder {
+  id             String              @id @default(uuid()) @db.Uuid
+  poNumber       String              @unique
+  supplierId     String              @db.Uuid
+  rfqId          String?             @db.Uuid
+  quotationId    String?             @unique @db.Uuid
+  createdById    String              @db.Uuid
+  status         PurchaseOrderStatus @default(DRAFT)
+  currency       String              @default("TRY")
+  subtotal       Decimal?            @db.Decimal(18, 2)
+  taxTotal       Decimal?            @db.Decimal(18, 2)
+  grandTotal     Decimal?            @db.Decimal(18, 2)
+  orderedAt      DateTime?
+  expectedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  attachments    Attachment[]
+  goods_receipts goods_receipts[]
+  invoices       Invoice[]
+  items          PurchaseOrderItem[]
+  createdBy      User                @relation("OrderCreator", fields: [createdById], references: [id])
+  quotations     Quotation?          @relation(fields: [quotationId], references: [id])
+  rfqs           RFQ?                @relation(fields: [rfqId], references: [id])
+  supplier       Supplier            @relation(fields: [supplierId], references: [id])
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([rfqId])
+  @@map("purchase_orders")
+}
+
+/// *
+///  * Sipariş kalemleri.
+///  * Buradaki satırlar karar sonucundan otomatik oluşturulabilir.
+model PurchaseOrderItem {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  purchaseOrderId        String                  @db.Uuid
+  purchaseRequestItemId  String?                 @db.Uuid
+  itemNumber             Int
+  description            String
+  quantity               Decimal                 @db.Decimal(18, 4)
+  unit                   String
+  unitPrice              Decimal                 @db.Decimal(18, 2)
+  taxRate                Decimal?                @db.Decimal(5, 2)
+  taxAmount              Decimal?                @db.Decimal(18, 2)
+  total                  Decimal?                @db.Decimal(18, 2)
+  receivedQuantity       Decimal                 @default(0) @db.Decimal(18, 4)
+  createdAt              DateTime                @default(now())
+  purchaseOrder          PurchaseOrder           @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  purchase_request_items purchase_request_items? @relation(fields: [purchaseRequestItemId], references: [id])
+  receipt_items          receipt_items[]
+
+  @@unique([purchaseOrderId, itemNumber])
+  @@index([purchaseRequestItemId])
+  @@map("purchase_order_items")
+}
+
+model Invoice {
+  id              String         @id @default(uuid()) @db.Uuid
+  invoiceNumber   String
+  supplierId      String         @db.Uuid
+  purchaseOrderId String?        @db.Uuid
+  status          InvoiceStatus  @default(DRAFT)
+  invoiceDate     DateTime?
+  dueDate         DateTime?
+  currency        String         @default("TRY")
+  subtotal        Decimal?       @db.Decimal(18, 2)
+  taxTotal        Decimal?       @db.Decimal(18, 2)
+  grandTotal      Decimal?       @db.Decimal(18, 2)
+  paidAt          DateTime?
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  attachments     Attachment[]
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  supplier        Supplier       @relation(fields: [supplierId], references: [id])
+
+  @@unique([supplierId, invoiceNumber])
+  @@index([purchaseOrderId])
+  @@index([status])
+  @@index([supplierId])
+  @@map("invoices")
+}
+
+model Attachment {
+  id                String             @id @default(uuid()) @db.Uuid
+  fileName          String
+  storagePath       String
+  mimeType          String?
+  sizeBytes         Int?
+  type              AttachmentType
+  purchaseRequestId String?            @db.Uuid
+  rfqId             String?            @db.Uuid
+  quotationId       String?            @db.Uuid
+  purchaseOrderId   String?            @db.Uuid
+  receiptId         String?            @db.Uuid
+  invoiceId         String?            @db.Uuid
+  supplierId        String?            @db.Uuid
+  createdAt         DateTime           @default(now())
+  invoice           Invoice?           @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  purchaseOrder     PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  purchase_requests purchase_requests? @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  quotation         Quotation?         @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  goods_receipts    goods_receipts?    @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  rfq               RFQ?               @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplier          Supplier?          @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([rfqId])
+  @@index([quotationId])
+  @@index([purchaseOrderId])
+  @@index([invoiceId])
+  @@index([purchaseRequestId])
+  @@index([receiptId])
+  @@index([supplierId])
+  @@map("attachments")
+}
+
+model AuditLog {
+  id         String      @id @default(uuid()) @db.Uuid
+  userId     String?     @db.Uuid
+  action     AuditAction
+  entityType String
+  entityId   String
+  changes    Json?
+  createdAt  DateTime    @default(now())
+  user       User?       @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+model approvals {
+  id                String            @id @db.Uuid
+  purchaseRequestId String            @db.Uuid
+  approverId        String            @db.Uuid
+  step              Int
+  status            ApprovalStatus    @default(PENDING)
+  comment           String?
+  actedAt           DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime
+  users             User              @relation(fields: [approverId], references: [id])
+  purchase_requests purchase_requests @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([purchaseRequestId, step])
+  @@index([approverId, status])
+}
+
+model goods_receipts {
+  id              String          @id @db.Uuid
+  receiptNumber   String          @unique
+  purchaseOrderId String          @db.Uuid
+  status          ReceiptStatus   @default(DRAFT)
+  receivedAt      DateTime        @default(now())
+  receivedBy      String?
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime
+  attachments     Attachment[]
+  purchase_orders PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id])
+  receipt_items   receipt_items[]
+
+  @@index([purchaseOrderId])
+  @@index([status])
+}
+
+model purchase_request_items {
+  id                   String              @id @db.Uuid
+  purchaseRequestId    String              @db.Uuid
+  itemNumber           Int
+  description          String
+  quantity             Decimal             @db.Decimal(18, 4)
+  unit                 String
+  estimatedUnitPrice   Decimal?            @db.Decimal(18, 2)
+  currency             String              @default("TRY")
+  category             String?
+  specifications       String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime
+  purchase_order_items PurchaseOrderItem[]
+  purchase_requests    purchase_requests   @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  receipt_items        receipt_items[]
+  rfq_items            RFQItem[]
+
+  @@unique([purchaseRequestId, itemNumber])
+  @@index([purchaseRequestId])
+}
+
+model purchase_requests {
+  id                     String                   @id @db.Uuid
+  requestNumber          String                   @unique
+  title                  String
+  description            String?
+  requesterId            String                   @db.Uuid
+  departmentId           String                   @db.Uuid
+  status                 PurchaseRequestStatus    @default(DRAFT)
+  neededBy               DateTime?
+  currency               String                   @default("TRY")
+  estimatedTotal         Decimal?                 @db.Decimal(18, 2)
+  submittedAt            DateTime?
+  approvedAt             DateTime?
+  rejectedAt             DateTime?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime
+  approvals              approvals[]
+  attachments            Attachment[]
+  purchase_request_items purchase_request_items[]
+  departments            Department               @relation(fields: [departmentId], references: [id])
+  users                  User                     @relation(fields: [requesterId], references: [id])
+  rfqs                   RFQ[]
+
+  @@index([createdAt])
+  @@index([departmentId])
+  @@index([requesterId])
+  @@index([status])
+}
+
+model receipt_items {
+  id                     String                  @id @db.Uuid
+  goodsReceiptId         String                  @db.Uuid
+  purchaseOrderItemId    String                  @db.Uuid
+  purchaseRequestItemId  String?                 @db.Uuid
+  quantity               Decimal                 @db.Decimal(18, 4)
+  condition              String?
+  notes                  String?
+  goods_receipts         goods_receipts          @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  purchase_order_items   PurchaseOrderItem       @relation(fields: [purchaseOrderItemId], references: [id])
+  purchase_request_items purchase_request_items? @relation(fields: [purchaseRequestItemId], references: [id])
+
+  @@index([goodsReceiptId])
+  @@index([purchaseOrderItemId])
+  @@index([purchaseRequestItemId])
+}
+
+enum UserRole {
+  ADMIN
+  REQUESTER
+  PROCUREMENT
+  APPROVER
+  FINANCE
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RFQStatus {
+  DRAFT
+  SENT
+  QUOTATION_RECEIVED
+  EVALUATING
+  AWARDED
+  CANCELLED
+  CLOSED
+}
+
+enum QuotationStatus {
+  DRAFT
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  RECEIVED
+  MATCHED
+  APPROVED
+  PAID
+  REJECTED
+  CANCELLED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AttachmentType {
+  PURCHASE_REQUEST
+  RFQ
+  QUOTATION
+  PURCHASE_ORDER
+  RECEIPT
+  INVOICE
+  SUPPLIER
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  SUBMIT
+  APPROVE
+  REJECT
+  CANCEL
+  SEND
+  AWARD
+  RECEIVE
+  PAY
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SENT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+  CLOSED
+}
+
+enum PurchaseRequestStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  CANCELLED
+  CONVERTED_TO_RFQ
+}
+
+enum ReceiptStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
