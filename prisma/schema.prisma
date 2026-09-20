@@ -6,3 +6,1317 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+/*
+ * ============================================================
+ * ENUMS
+ * ============================================================
+ */
+
+enum UserRole {
+  ADMIN
+  NORMAL_USER
+  MANAGER
+  REALIZATION_OFFICER
+  PROCUREMENT_AUTHORITY
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RequestType {
+  GOODS
+  SERVICE
+  CONSTRUCTION
+}
+
+enum MaterialRequestStatus {
+  DRAFT
+  SUBMITTED
+  PROCESSED
+  CANCELLED
+}
+
+enum ProcurementStatus {
+  DRAFT
+  PREPARING
+  READY_FOR_EKAP
+  ANNOUNCED
+  QUOTATION_COLLECTION
+  EVALUATION
+  DECISION_PENDING
+  DECISION_APPROVED
+  APPROVAL_PENDING
+  APPROVED
+  ORDERING
+  PARTIALLY_DELIVERED
+  DELIVERED
+  INVOICED
+  COMPLETED
+  CANCELLED
+}
+
+enum ProcurementMethod {
+  DIRECT_PROCUREMENT
+  OTHER
+}
+
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+enum QuotationStatus {
+  RECEIVED
+  UNDER_EVALUATION
+  ACCEPTED
+  PARTIALLY_ACCEPTED
+  REJECTED
+}
+
+enum EvaluationType {
+  SAMPLE
+  DEMONSTRATION
+  CATALOG
+  VISUAL
+  TECHNICAL
+  OTHER
+}
+
+enum EvaluationResult {
+  ACCEPTED
+  REJECTED
+  CONDITIONAL
+}
+
+enum DecisionStatus {
+  DRAFT
+  PENDING_SIGNATURE
+  SIGNED
+  CANCELLED
+}
+
+enum SignatureStage {
+  DECISION
+  APPROVAL
+}
+
+enum SignatureRole {
+  CHAIRPERSON
+  MEMBER
+  REALIZATION_OFFICER
+  PROCUREMENT_AUTHORITY
+}
+
+enum OrderStatus {
+  DRAFT
+  APPROVED
+  SENT
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  RECEIVED
+  APPROVED
+  PAID
+  REJECTED
+}
+
+enum DeliveryStatus {
+  PENDING
+  PARTIALLY_DELIVERED
+  DELIVERED
+  OVERDUE
+}
+
+enum DocumentType {
+  MATERIAL_REQUEST
+  ADMINISTRATIVE_SPECIFICATION
+  CONTRACT_DRAFT
+  RFQ
+  QUOTATION
+  CATALOG
+  SAMPLE
+  DEMONSTRATION
+  DECISION
+  APPROVAL
+  PURCHASE_ORDER
+  DELIVERY
+  INVOICE
+  OTHER
+}
+
+/*
+ * ============================================================
+ * USERS / PERSONNEL
+ * ============================================================
+ */
+
+/*
+ * Sisteme giriş yapabilen kişiler.
+ *
+ * Supabase Auth -> auth.users
+ *                  |
+ *                  | authUserId
+ *                  v
+ *              User
+ */
+model User {
+  id          String     @id @default(uuid()) @db.Uuid
+  authUserId  String     @unique @db.Uuid
+  email       String     @unique
+  firstName   String
+  lastName    String
+  status      UserStatus @default(ACTIVE)
+
+  departmentId String? @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department Department? @relation(fields: [departmentId], references: [id])
+
+  roles UserRoleAssignment[]
+
+  createdMaterialRequests MaterialRequest[] @relation("MaterialRequestCreator")
+  createdProcurements     Procurement[]     @relation("ProcurementCreator")
+  createdRFQs             RFQ[]             @relation("RFQCreator")
+  createdQuotations       Quotation[]       @relation("QuotationCreator")
+  createdOrders           PurchaseOrder[]   @relation("OrderCreator")
+
+  signatures Signature[]
+
+  auditLogs AuditLog[]
+  evaluations Evaluation[]
+
+  @@index([departmentId])
+  @@index([status])
+  @@map("users")
+}
+
+/*
+ * Bir kullanıcı birden fazla role sahip olabilir.
+ *
+ * Örneğin:
+ * - Manager
+ * - Procurement Authority
+ */
+model UserRoleAssignment {
+  id     String   @id @default(uuid()) @db.Uuid
+  userId String   @db.Uuid
+  role   UserRole
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@index([role])
+  @@map("user_role_assignments")
+}
+
+/*
+ * Sisteme erişimi olmayan hastane çalışanları.
+ *
+ * Teslim alacak kişi gibi alanlarda kullanılabilir.
+ */
+model Employee {
+  id           String  @id @default(uuid()) @db.Uuid
+  employeeCode String? @unique
+  firstName    String
+  lastName     String
+  title        String?
+  departmentId String? @db.Uuid
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department Department? @relation(fields: [departmentId], references: [id])
+
+  deliveries PurchaseDelivery[]
+
+  @@index([departmentId])
+  @@index([lastName])
+  @@map("employees")
+}
+
+/*
+ * ============================================================
+ * ORGANIZATION
+ * ============================================================
+ */
+
+model Department {
+  id   String @id @default(uuid()) @db.Uuid
+  code String @unique
+  name String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  employees Employee[]
+
+  materialRequests MaterialRequest[]
+  procurements     Procurement[]
+
+  @@map("departments")
+}
+
+/*
+ * ============================================================
+ * MATERIAL REQUEST
+ * TAŞINIR İSTEK FORMU
+ * ============================================================
+ */
+
+/*
+ * İlk aşamadaki basit ihtiyaç formu.
+ *
+ * Birim -> Depo / Ayniyat / Eczane
+ *
+ * Burada ayrıntılı procurement bilgisi bulunmaz.
+ */
+model MaterialRequest {
+  id            String                @id @default(uuid()) @db.Uuid
+  requestNumber String                @unique
+
+  departmentId String @db.Uuid
+  createdById  String @db.Uuid
+
+  requestDate DateTime @default(now())
+  status      MaterialRequestStatus @default(DRAFT)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id])
+  createdBy  User       @relation("MaterialRequestCreator", fields: [createdById], references: [id])
+
+  items MaterialRequestItem[]
+
+  procurements ProcurementMaterialRequest[]
+
+  attachments Attachment[]
+
+  @@index([departmentId])
+  @@index([createdById])
+  @@index([status])
+  @@index([requestDate])
+  @@map("material_requests")
+}
+
+/*
+ * İlk formdaki basit kalem.
+ */
+model MaterialRequestItem {
+  id               String @id @default(uuid()) @db.Uuid
+  materialRequestId String @db.Uuid
+
+  itemNumber Int
+
+  materialName String
+  unit         String
+  quantity     Decimal @db.Decimal(18, 4)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+
+  materialRequest MaterialRequest @relation(
+    fields: [materialRequestId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  procurementItems ProcurementItem[]
+
+  @@unique([materialRequestId, itemNumber])
+  @@index([materialRequestId])
+  @@map("material_request_items")
+}
+
+/*
+ * ============================================================
+ * PROCUREMENT
+ * ============================================================
+ */
+
+model Procurement {
+  id               String @id @default(uuid()) @db.Uuid
+  procurementNumber String @unique
+
+  title String
+
+  procurementDate DateTime
+
+  departmentId String @db.Uuid
+  createdById  String @db.Uuid
+
+  requestType RequestType
+
+  method ProcurementMethod @default(DIRECT_PROCUREMENT)
+
+  status ProcurementStatus @default(DRAFT)
+
+  /*
+   * EKAP bilgileri
+   */
+  ekapDirectProcurementId String?
+
+  directProcurementName String?
+
+  paymentTermDays Int?
+
+  additionalClause String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id])
+
+  createdBy User @relation(
+    "ProcurementCreator",
+    fields: [createdById],
+    references: [id]
+  )
+
+  materialRequests ProcurementMaterialRequest[]
+
+  items ProcurementItem[]
+
+  administrativeSpecification AdministrativeSpecification?
+
+  contractDraft ContractDraft?
+
+  rfqs RFQ[]
+
+  decision ProcurementDecision?
+
+  signatures Signature[]
+
+  orders PurchaseOrder[]
+
+  attachments Attachment[]
+
+  @@index([departmentId])
+  @@index([createdById])
+  @@index([status])
+  @@index([procurementDate])
+  @@index([ekapDirectProcurementId])
+  @@map("procurements")
+}
+
+/*
+ * Procurement ile ilk Taşınır İstek Formları arasındaki ilişki.
+ */
+model ProcurementMaterialRequest {
+  id                String @id @default(uuid()) @db.Uuid
+  procurementId     String @db.Uuid
+  materialRequestId String @db.Uuid
+
+  procurement     Procurement     @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  materialRequest MaterialRequest @relation(fields: [materialRequestId], references: [id])
+
+  @@unique([procurementId, materialRequestId])
+  @@index([materialRequestId])
+  @@map("procurement_material_requests")
+}
+
+/*
+ * Procurement'ın ayrıntılı kalemleri.
+ *
+ * Taşınır İstek Formu'ndan daha ayrıntılıdır.
+ */
+model ProcurementItem {
+  id            String @id @default(uuid()) @db.Uuid
+  procurementId String @db.Uuid
+
+  materialRequestItemId String? @db.Uuid
+
+  itemNumber Int
+
+  name        String
+  description String?
+
+  unit     String
+  quantity Decimal @db.Decimal(18, 4)
+
+  sutCode  String?
+  sutPrice Decimal? @db.Decimal(18, 2)
+
+  budgetCode String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  procurement Procurement @relation(
+    fields: [procurementId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  materialRequestItem MaterialRequestItem? @relation(
+    fields: [materialRequestItemId],
+    references: [id]
+  )
+
+  rfqItems RFQItem[]
+
+  decisionItems ProcurementDecisionItem[]
+
+  orderItems PurchaseOrderItem[]
+
+  @@unique([procurementId, itemNumber])
+  @@index([materialRequestItemId])
+  @@index([procurementId])
+  @@map("procurement_items")
+}
+
+/*
+ * ============================================================
+ * İDARİ ŞARTNAME
+ * ============================================================
+ */
+
+model AdministrativeSpecification {
+  id            String @id @default(uuid()) @db.Uuid
+  procurementId String @unique @db.Uuid
+
+  procurementDate DateTime
+
+  ekapDirectProcurementId String
+  directProcurementName   String
+
+  paymentTermDays Int?
+
+  additionalClause String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  procurement Procurement @relation(
+    fields: [procurementId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  attachments Attachment[]
+
+  @@map("administrative_specifications")
+}
+
+/*
+ * ============================================================
+ * SÖZLEŞME TASARISI
+ * ============================================================
+ */
+
+model ContractDraft {
+  id            String @id @default(uuid()) @db.Uuid
+  procurementId String @unique @db.Uuid
+
+  ekapDirectProcurementId String
+  directProcurementName   String
+
+  finalGuaranteeRequired Boolean @default(false)
+
+  contractDurationDays Int?
+
+  startDate DateTime?
+  endDate   DateTime?
+
+  paymentTermDays Int?
+
+  additionalClause String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  procurement Procurement @relation(
+    fields: [procurementId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  attachments Attachment[]
+
+  @@map("contract_drafts")
+}
+
+/*
+ * ============================================================
+ * RFQ
+ * ============================================================
+ */
+
+model RFQ {
+  id            String @id @default(uuid()) @db.Uuid
+  rfqNumber     String @unique
+  procurementId String @db.Uuid
+
+  createdById String @db.Uuid
+
+  createdAt DateTime @default(now())
+  sentAt    DateTime?
+  deadline  DateTime?
+
+  status RFQStatus @default(DRAFT)
+
+  procurement Procurement @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+
+  createdBy User @relation(
+    "RFQCreator",
+    fields: [createdById],
+    references: [id]
+  )
+
+  suppliers RFQSupplier[]
+  items     RFQItem[]
+  quotations Quotation[]
+
+  attachments Attachment[]
+
+  @@index([procurementId])
+  @@index([createdById])
+  @@map("rfqs")
+}
+
+/*
+ * RFQ'ya teklif vermesi beklenen firmalar.
+ */
+model RFQSupplier {
+  id         String @id @default(uuid()) @db.Uuid
+  rfqId      String @db.Uuid
+  supplierId String @db.Uuid
+
+  invitedAt DateTime @default(now())
+
+  rfq      RFQ      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+
+  @@unique([rfqId, supplierId])
+  @@index([supplierId])
+  @@map("rfq_suppliers")
+}
+
+/*
+ * RFQ kalemleri.
+ */
+model RFQItem {
+  id            String @id @default(uuid()) @db.Uuid
+  rfqId         String @db.Uuid
+  procurementItemId String @db.Uuid
+
+  itemNumber Int
+
+  description String
+  unit        String
+  quantity    Decimal @db.Decimal(18, 4)
+
+  rfq RFQ @relation(
+    fields: [rfqId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  procurementItem ProcurementItem @relation(
+    fields: [procurementItemId],
+    references: [id]
+  )
+
+  quotationItems QuotationItem[]
+
+  @@unique([rfqId, itemNumber])
+  @@index([procurementItemId])
+  @@map("rfq_items")
+}
+
+/*
+ * ============================================================
+ * TEDARİKÇİ
+ * ============================================================
+ */
+
+model Supplier {
+  id           String @id @default(uuid()) @db.Uuid
+  supplierCode String @unique
+
+  companyName String
+
+  taxId String? @unique
+
+  email   String?
+  phone   String?
+  website String?
+
+  address String?
+  city    String?
+  country String?
+
+  contactName String?
+
+  status SupplierStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rfqSuppliers RFQSupplier[]
+  quotations   Quotation[]
+  orders       PurchaseOrder[]
+  invoices     Invoice[]
+
+  attachments Attachment[]
+
+  @@index([companyName])
+  @@index([taxId])
+  @@index([status])
+  @@map("suppliers")
+}
+
+/*
+ * ============================================================
+ * TEKLİF
+ * ============================================================
+ */
+
+model Quotation {
+  id             String @id @default(uuid()) @db.Uuid
+  quotationNumber String @unique
+
+  rfqId      String @db.Uuid
+  supplierId String @db.Uuid
+  createdById String? @db.Uuid
+
+  receivedAt DateTime @default(now())
+
+  validUntil DateTime?
+
+  currency String @default("TRY")
+
+  subtotal   Decimal? @db.Decimal(18, 2)
+  taxTotal   Decimal? @db.Decimal(18, 2)
+  grandTotal Decimal? @db.Decimal(18, 2)
+
+  status QuotationStatus @default(RECEIVED)
+
+  notes String?
+
+  rfq RFQ @relation(
+    fields: [rfqId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  supplier Supplier @relation(
+    fields: [supplierId],
+    references: [id]
+  )
+
+  createdBy User? @relation(
+    "QuotationCreator",
+    fields: [createdById],
+    references: [id]
+  )
+
+  items QuotationItem[]
+
+  evaluations Evaluation[]
+
+  attachments Attachment[]
+
+  @@index([rfqId])
+  @@index([supplierId])
+  @@index([createdById])
+  @@map("quotations")
+}
+
+model QuotationItem {
+  id          String @id @default(uuid()) @db.Uuid
+  quotationId String @db.Uuid
+  rfqItemId   String @db.Uuid
+
+  quantity Decimal @db.Decimal(18, 4)
+
+  unitPrice Decimal @db.Decimal(18, 2)
+
+  taxRate   Decimal? @db.Decimal(5, 2)
+  taxAmount Decimal? @db.Decimal(18, 2)
+
+  total Decimal @db.Decimal(18, 2)
+
+  notes String?
+
+  quotation Quotation @relation(
+    fields: [quotationId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  rfqItem RFQItem @relation(
+    fields: [rfqItemId],
+    references: [id]
+  )
+
+  @@unique([quotationId, rfqItemId])
+  @@index([rfqItemId])
+  @@map("quotation_items")
+}
+
+/*
+ * ============================================================
+ * NUMUNE / DEMONSTRASYON / KATALOG DEĞERLENDİRMESİ
+ * ============================================================
+ */
+
+model Evaluation {
+  id String @id @default(uuid()) @db.Uuid
+
+  quotationId String @db.Uuid
+
+  type EvaluationType
+
+  result EvaluationResult
+
+  evaluatorId String? @db.Uuid
+
+  score Decimal? @db.Decimal(5, 2)
+
+  notes String?
+
+  evaluatedAt DateTime @default(now())
+
+  quotation Quotation @relation(
+    fields: [quotationId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  evaluator User? @relation(
+    fields: [evaluatorId],
+    references: [id]
+  )
+
+  attachments Attachment[]
+
+  @@index([quotationId])
+  @@index([evaluatorId])
+  @@map("evaluations")
+}
+
+/*
+ * ============================================================
+ * KARAR
+ * ============================================================
+ */
+
+model ProcurementDecision {
+  id            String @id @default(uuid()) @db.Uuid
+  procurementId String @unique @db.Uuid
+
+  partialOfferAllowed Boolean @default(false)
+
+  status DecisionStatus @default(DRAFT)
+
+  generalReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  procurement Procurement @relation(
+    fields: [procurementId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  items ProcurementDecisionItem[]
+
+  signatures Signature[]
+
+  attachments Attachment[]
+
+  @@map("procurement_decisions")
+}
+
+/*
+ * Her procurement kaleminin karar sonucu.
+ *
+ * Sistem fiyatları karşılaştırabilir.
+ * Kullanıcı gerekçe girerek otomatik sıralamadan farklı
+ * bir tedarikçi seçebilir.
+ */
+model ProcurementDecisionItem {
+  id         String @id @default(uuid()) @db.Uuid
+  decisionId String @db.Uuid
+  procurementItemId String @db.Uuid
+
+  supplierId String @db.Uuid
+  quotationId String @db.Uuid
+  quotationItemId String @db.Uuid
+
+  quantity Decimal @db.Decimal(18, 4)
+
+  unitPrice Decimal @db.Decimal(18, 2)
+
+  rank Int?
+
+  systemRecommended Boolean @default(false)
+
+  userSelected Boolean @default(false)
+
+  selectionReason String?
+
+  decisionNote String?
+
+  decision ProcurementDecision @relation(
+    fields: [decisionId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  procurementItem ProcurementItem @relation(
+    fields: [procurementItemId],
+    references: [id]
+  )
+
+  supplier Supplier @relation(
+    fields: [supplierId],
+    references: [id]
+  )
+
+  quotation Quotation @relation(
+    fields: [quotationId],
+    references: [id]
+  )
+
+  quotationItem QuotationItem @relation(
+    fields: [quotationItemId],
+    references: [id]
+  )
+
+  @@index([decisionId])
+  @@index([procurementItemId])
+  @@index([supplierId])
+  @@map("procurement_decision_items")
+}
+
+/*
+ * ============================================================
+ * İMZALAR
+ * ============================================================
+ */
+
+model Signature {
+  id            String @id @default(uuid()) @db.Uuid
+  procurementId String @db.Uuid
+
+  decisionId String? @db.Uuid
+
+  userId String @db.Uuid
+
+  stage SignatureStage
+  role  SignatureRole
+
+  signedAt DateTime?
+
+  isSigned Boolean @default(false)
+
+  signatureOrder Int
+
+  comment String?
+
+  procurement Procurement @relation(
+    fields: [procurementId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  decision ProcurementDecision? @relation(
+    fields: [decisionId],
+    references: [id]
+  )
+
+  user User @relation(
+    fields: [userId],
+    references: [id]
+  )
+
+  @@index([procurementId, stage])
+  @@index([userId])
+  @@map("signatures")
+}
+
+/*
+ * ============================================================
+ * SİPARİŞ
+ * ============================================================
+ */
+
+model PurchaseOrder {
+  id            String @id @default(uuid()) @db.Uuid
+  orderNumber   String @unique
+
+  procurementId String @db.Uuid
+  supplierId    String @db.Uuid
+  createdById   String @db.Uuid
+
+  status OrderStatus @default(DRAFT)
+
+  orderDate DateTime @default(now())
+
+  expectedDeliveryDate DateTime?
+
+  deliveryAddress String?
+
+  deliveryNotes String?
+
+  subtotal   Decimal? @db.Decimal(18, 2)
+  taxTotal   Decimal? @db.Decimal(18, 2)
+  grandTotal Decimal? @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  procurement Procurement @relation(
+    fields: [procurementId],
+    references: [id]
+  )
+
+  supplier Supplier @relation(
+    fields: [supplierId],
+    references: [id]
+  )
+
+  createdBy User @relation(
+    "OrderCreator",
+    fields: [createdById],
+    references: [id]
+  )
+
+  items PurchaseOrderItem[]
+
+  deliveries PurchaseDelivery[]
+
+  invoices Invoice[]
+
+  attachments Attachment[]
+
+  @@index([procurementId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([expectedDeliveryDate])
+  @@map("purchase_orders")
+}
+
+/*
+ * Sipariş kalemleri.
+ *
+ * Buradaki satırlar karar sonucundan otomatik oluşturulabilir.
+ */
+model PurchaseOrderItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  purchaseOrderId String @db.Uuid
+  procurementItemId String @db.Uuid
+
+  itemNumber Int
+
+  description String
+
+  quantity Decimal @db.Decimal(18, 4)
+
+  unit String
+
+  unitPrice Decimal @db.Decimal(18, 2)
+
+  taxRate Decimal? @db.Decimal(5, 2)
+
+  taxAmount Decimal? @db.Decimal(18, 2)
+
+  total Decimal @db.Decimal(18, 2)
+
+  deliveredQuantity Decimal @default(0) @db.Decimal(18, 4)
+
+  purchaseOrder PurchaseOrder @relation(
+    fields: [purchaseOrderId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  procurementItem ProcurementItem @relation(
+    fields: [procurementItemId],
+    references: [id]
+  )
+
+  deliveryItems PurchaseDeliveryItem[]
+
+  @@unique([purchaseOrderId, itemNumber])
+  @@index([procurementItemId])
+  @@map("purchase_order_items")
+}
+
+/*
+ * ============================================================
+ * TESLİMAT
+ * ============================================================
+ */
+
+model PurchaseDelivery {
+  id String @id @default(uuid()) @db.Uuid
+
+  deliveryNumber String @unique
+
+  purchaseOrderId String @db.Uuid
+
+  receivedByEmployeeId String? @db.Uuid
+
+  deliveryDate DateTime @default(now())
+
+  status DeliveryStatus @default(PENDING)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+
+  purchaseOrder PurchaseOrder @relation(
+    fields: [purchaseOrderId],
+    references: [id]
+  )
+
+  receivedByEmployee Employee? @relation(
+    fields: [receivedByEmployeeId],
+    references: [id]
+  )
+
+  items PurchaseDeliveryItem[]
+
+  attachments Attachment[]
+
+  @@index([purchaseOrderId])
+  @@index([receivedByEmployeeId])
+  @@map("purchase_deliveries")
+}
+
+model PurchaseDeliveryItem {
+  id String @id @default(uuid()) @db.Uuid
+
+  deliveryId String @db.Uuid
+  purchaseOrderItemId String @db.Uuid
+
+  quantity Decimal @db.Decimal(18, 4)
+
+  notes String?
+
+  delivery PurchaseDelivery @relation(
+    fields: [deliveryId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  purchaseOrderItem PurchaseOrderItem @relation(
+    fields: [purchaseOrderItemId],
+    references: [id]
+  )
+
+  @@index([deliveryId])
+  @@index([purchaseOrderItemId])
+  @@map("purchase_delivery_items")
+}
+
+/*
+ * ============================================================
+ * FATURA
+ * ============================================================
+ */
+
+model Invoice {
+  id String @id @default(uuid()) @db.Uuid
+
+  invoiceNumber String
+
+  supplierId String @db.Uuid
+  purchaseOrderId String? @db.Uuid
+
+  invoiceDate DateTime
+
+  status InvoiceStatus @default(RECEIVED)
+
+  currency String @default("TRY")
+
+  subtotal   Decimal? @db.Decimal(18, 2)
+  taxTotal   Decimal? @db.Decimal(18, 2)
+  grandTotal Decimal? @db.Decimal(18, 2)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  supplier Supplier @relation(
+    fields: [supplierId],
+    references: [id]
+  )
+
+  purchaseOrder PurchaseOrder? @relation(
+    fields: [purchaseOrderId],
+    references: [id]
+  )
+
+  attachments Attachment[]
+
+  @@unique([supplierId, invoiceNumber])
+  @@index([purchaseOrderId])
+  @@index([status])
+  @@map("invoices")
+}
+
+/*
+ * ============================================================
+ * DOSYALAR
+ * ============================================================
+ */
+
+model Attachment {
+  id String @id @default(uuid()) @db.Uuid
+
+  fileName String
+  storagePath String
+
+  mimeType String?
+  sizeBytes Int?
+
+  type DocumentType
+
+  procurementId String?
+  materialRequestId String?
+  administrativeSpecificationId String?
+  contractDraftId String?
+  rfqId String?
+  quotationId String?
+  evaluationId String?
+  decisionId String?
+  purchaseOrderId String?
+  deliveryId String?
+  invoiceId String?
+  supplierId String?
+
+  createdAt DateTime @default(now())
+
+  procurement Procurement? @relation(
+    fields: [procurementId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  materialRequest MaterialRequest? @relation(
+    fields: [materialRequestId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  administrativeSpecification AdministrativeSpecification? @relation(
+    fields: [administrativeSpecificationId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  contractDraft ContractDraft? @relation(
+    fields: [contractDraftId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  rfq RFQ? @relation(
+    fields: [rfqId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  quotation Quotation? @relation(
+    fields: [quotationId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  evaluation Evaluation? @relation(
+    fields: [evaluationId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  decision ProcurementDecision? @relation(
+    fields: [decisionId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  purchaseOrder PurchaseOrder? @relation(
+    fields: [purchaseOrderId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  delivery PurchaseDelivery? @relation(
+    fields: [deliveryId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  invoice Invoice? @relation(
+    fields: [invoiceId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  supplier Supplier? @relation(
+    fields: [supplierId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  @@index([procurementId])
+  @@index([materialRequestId])
+  @@index([rfqId])
+  @@index([quotationId])
+  @@index([decisionId])
+  @@index([purchaseOrderId])
+  @@index([deliveryId])
+  @@index([invoiceId])
+  @@map("attachments")
+}
+
+/*
+ * ============================================================
+ * AUDIT LOG
+ * ============================================================
+ */
+
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String? @db.Uuid
+
+  action String
+
+  entityType String
+  entityId String
+
+  changes Json?
+
+  createdAt DateTime @default(now())
+
+  user User? @relation(
+    fields: [userId],
+    references: [id]
+  )
+
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
