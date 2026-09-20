@@ -1074,61 +1074,53 @@ model Invoice {
 model Attachment {
   id String @id @default(uuid()) @db.Uuid
 
-  fileName String
+  fileName   String
   storagePath String
+  mimeType   String
+  sizeBytes  Int?
+  type       DocumentType
 
-  mimeType String?
-  sizeBytes Int?
+  procurementId                 String? @db.Uuid
+  materialRequestId             String? @db.Uuid
+  administrativeSpecificationId String? @db.Uuid
+  contractDraftId              String? @db.Uuid
+  rfqId                        String? @db.Uuid
+  quotationId                  String? @db.Uuid
+  evaluationId                 String? @db.Uuid
+  decisionId                   String? @db.Uuid
+  purchaseOrderId              String? @db.Uuid
+  deliveryId                   String? @db.Uuid
+  invoiceId                    String? @db.Uuid
+  supplierId                   String? @db.Uuid
 
-  type DocumentType
-
-  procurementId String?
-  materialRequestId String?
-  administrativeSpecificationId String?
-  contractDraftId String?
-  rfqId String?
-  quotationId String?
-  evaluationId String?
-  decisionId String?
-  purchaseOrderId String?
-  deliveryId String?
-  invoiceId String?
-  supplierId String?
+  procurement Procurement? @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  materialRequest MaterialRequest? @relation(fields: [materialRequestId], references: [id], onDelete: Cascade)
+  administrativeSpecification AdministrativeSpecification? @relation(fields: [administrativeSpecificationId], references: [id], onDelete: Cascade)
+  contractDraft ContractDraft? @relation(fields: [contractDraftId], references: [id], onDelete: Cascade)
+  rfq RFQ? @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  quotation Quotation? @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  evaluation Evaluation? @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  decision ProcurementDecision? @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  delivery PurchaseDelivery? @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
-  procurement Procurement? @relation(fields: [procurementId], references: [id], onDelete: Cascade)
-
-  materialRequest MaterialRequest? @relation(fields: [materialRequestId], references: [id], onDelete: Cascade)
-
-  administrativeSpecification AdministrativeSpecification? @relation(fields: [administrativeSpecificationId], references: [id], onDelete: Cascade)
-
-  contractDraft ContractDraft? @relation(fields: [contractDraftId], references: [id], onDelete: Cascade)
-
-  rfq RFQ? @relation(fields: [rfqId], references: [id], onDelete: Cascade)
-
-  quotation Quotation? @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-
-  evaluation Evaluation? @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
-
-  decision ProcurementDecision? @relation(fields: [decisionId], references: [id], onDelete: Cascade)
-
-  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-
-  delivery PurchaseDelivery? @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
-
-  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-
-  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-
   @@index([procurementId])
   @@index([materialRequestId])
+  @@index([administrativeSpecificationId])
+  @@index([contractDraftId])
   @@index([rfqId])
   @@index([quotationId])
+  @@index([evaluationId])
   @@index([decisionId])
   @@index([purchaseOrderId])
   @@index([deliveryId])
   @@index([invoiceId])
+  @@index([supplierId])
+
   @@map("attachments")
 }
 
