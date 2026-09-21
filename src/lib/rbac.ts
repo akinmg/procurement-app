@@ -1,6 +1,6 @@
 
 import { UserRole } from "@/generated/prisma/client";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth/get-current-user";
 
 export async function hasRole(role: UserRole): Promise<boolean> {
   const user = await getCurrentUser();

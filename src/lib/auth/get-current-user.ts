@@ -14,13 +14,12 @@ export async function getCurrentUser() {
   }
 
   const user = await prisma.user.findUnique({
-    where: {
-      authUserId: authUser.id,
-    },
-    include: {
-      department: true,
-    },
-  });
+  where: { authUserId: authUser.id },
+  include: {
+    roles: true,
+    department: true,
+  },
+});
 
   return user;
 }
